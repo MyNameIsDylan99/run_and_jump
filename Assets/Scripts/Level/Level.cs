@@ -1,18 +1,26 @@
-﻿using UnityEngine;
+﻿using UnityEditor;
+using UnityEngine;
 
 namespace RunAndJump
 {
     public partial class Level : MonoBehaviour
     {
+        [SerializeField]
+        public GameObject BasePrefab;
+        [SerializeField]
+        public GameObject TopPrefab;
+
+
+        [SerializeField]
+        private LevelSettings _settings;
+        public LevelSettings Settings
+        {
+            get { return _settings; }
+            set { _settings = value; }
+        }
 
         [SerializeField]
         public int _totalTime = 60;
-        [SerializeField]
-        private float _gravity = -30;
-        [SerializeField]
-        private AudioClip _bgm;
-        [SerializeField]
-        private Sprite _background;
 
         [SerializeField]
         private int _totalColumns = 25;
@@ -40,20 +48,41 @@ namespace RunAndJump
 
         public float Gravity
         {
-            get { return _gravity; }
-            set { _gravity = value; }
+            get { return ((_settings != null) ? _settings.Gravity : 0); }
+            set
+            {
+                if (_settings != null)
+                {
+                    _settings.Gravity = value;
+                }
+            }
         }
 
         public AudioClip Bgm
         {
-            get { return _bgm; }
-            set { _bgm = value; }
+            get { return (_settings != null) ? _settings.BackgroundMusic : null; }
+            set
+            {
+                if (_settings != null)
+                {
+                    _settings.BackgroundMusic = value;
+                }
+            }
         }
 
         public Sprite Background
         {
-            get { return _background; }
-            set { _background = value; }
+            get
+            {
+                return (_settings != null) ? _settings.Background : null;
+            }
+            set
+            {
+                if (_settings != null)
+                {
+                    _settings.Background = value;
+                }
+            }
         }
 
         public int TotalColumns
@@ -64,8 +93,9 @@ namespace RunAndJump
         public int TotalRows
         {
             get { return _totalRows; }
-            set { _totalColumns=value; }
+            set { _totalColumns = value; }
         }
+
 
         private void GridFrameGizmo(int cols, int rows)
         {
@@ -139,5 +169,7 @@ namespace RunAndJump
             Gizmos.matrix = oldMatrix;
         }
 
+
     }
+
 }

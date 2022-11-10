@@ -20,5 +20,19 @@ namespace RunAndJump.LevelCreator
             PaletteWindow.ShowPalette();
         }
 
+        [MenuItem("Tools/Level Creator/New Level Settings")]
+        private static void NewLevelSettings()
+        {
+            string path = EditorUtility.SaveFilePanelInProject(
+            "New Level Settings",
+            "LevelSettings",
+            "asset",
+            "Define the name for the LevelSettings asset");
+            if (path != "")
+            {
+                EditorUtils.CreateAsset<LevelSettings>(path);
+            }
+        }
+
     }
 }

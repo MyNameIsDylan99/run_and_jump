@@ -1,8 +1,10 @@
+using log4net.Util;
 using System.Collections;
 using System.Collections.Generic;
 using System.Runtime.Remoting.Contexts;
 using UnityEditor;
 using UnityEditor.Experimental.TerrainAPI;
+using UnityEditor.VersionControl;
 using UnityEngine;
 
 namespace RunAndJump.LevelCreator
@@ -18,6 +20,20 @@ namespace RunAndJump.LevelCreator
         private LevelPiece _pieceSelected;
         private PaletteItem _itemInspected;
 
+        private int _originalPosX;
+        private int _originalPosY;
+
+        private GUIStyle _titleStyle;
+
+        [SerializeField]
+        private int _groundHeight;
+
+        private SerializedProperty BasePrefab;
+        private SerializedProperty TopPrefab;
+
+
+        private bool foundPrefabs = false;
+
         public enum Mode
         {
             View,
@@ -28,10 +44,14 @@ namespace RunAndJump.LevelCreator
 
         private Mode _selectedMode;
         private Mode _currentMode;
+        private SerializedProperty _serializedTotalTime;
 
         private void OnEnable()
         {
+            BasePrefab = serializedObject.FindProperty("BasePrefab");
+            TopPrefab = serializedObject.FindProperty("TopPrefab");
             _myTarget = (Level)target;
+            FindPrefabs();
             InitLevel();
             ResetResizeValues();
             SubscribeEvents();
@@ -63,6 +83,7 @@ namespace RunAndJump.LevelCreator
         {
             DrawLevelDataGUI();
             DrawLevelSizeGUI();
+            DrawLevelGenerationGUI();
             DrawPieceSelectedGUI();
             DrawInspectedItemGUI();
 
@@ -76,19 +97,25 @@ namespace RunAndJump.LevelCreator
         {
             EditorGUILayout.LabelField("Data", EditorStyles.boldLabel);
             EditorGUILayout.BeginVertical("box");
-            _myTarget.TotalTime = EditorGUILayout.IntField("Total Time", Mathf.
-            Max(0, _myTarget.TotalTime));
-            _myTarget.Gravity = EditorGUILayout.FloatField("Gravity",
-            _myTarget.Gravity);
-            _myTarget.Bgm = (AudioClip)EditorGUILayout.ObjectField("Bgm",
-            _myTarget.Bgm, typeof(AudioClip), false);
-            _myTarget.Background = (Sprite)EditorGUILayout.ObjectField
-            ("Background", _myTarget.Background, typeof(Sprite), false);
+
+            _myTarget.Settings = (LevelSettings)EditorGUILayout.
+            ObjectField("Level Settings", _myTarget.Settings,
+            typeof(LevelSettings), false);
+            if (_myTarget.Settings != null)
+            {
+                Editor.CreateEditor(_myTarget.Settings).OnInspectorGUI();
+            }
+            else
+            {
+                EditorGUILayout.HelpBox("You must attach a LevelSettings asset!", MessageType.Warning);
+            }
             EditorGUILayout.EndVertical();
+            _myTarget.SetGravity();
         }
 
         private void InitLevel()
         {
+            _myTarget.transform.hideFlags = HideFlags.NotEditable;
             if (_myTarget.Pieces == null || _myTarget.Pieces.Length == 0)
             {
                 Debug.Log("Initializing the Pieces array...");
@@ -137,7 +164,6 @@ namespace RunAndJump.LevelCreator
             EditorGUILayout.BeginVertical();
             _newTotalColumns = EditorGUILayout.IntField("Columns", Mathf.Max(1, _newTotalColumns));
             _newTotalRows = EditorGUILayout.IntField("Rows", Mathf.Max(1, _newTotalRows));
-
             EditorGUILayout.EndVertical();
             EditorGUILayout.BeginVertical();
 
@@ -167,6 +193,7 @@ namespace RunAndJump.LevelCreator
             EditorGUILayout.EndVertical();
             EditorGUILayout.EndHorizontal();
         }
+
         private void UpdateCurrentPieceInstance(PaletteItem item, Texture2D preview)
         {
             _itemSelected = item;
@@ -323,6 +350,27 @@ namespace RunAndJump.LevelCreator
                     if (Event.current.type == EventType.MouseDown)
                     {
                         Edit(col, row);
+                        _originalPosX = col;
+                        _originalPosY = row;
+                    }
+                    if (Event.current.type == EventType.MouseUp ||
+                    Event.current.type == EventType.Ignore)
+                    {
+                        if (_itemInspected != null)
+                        {
+                            Move();
+                        }
+                    }
+
+                    if (_itemInspected != null)
+                    {
+                        _itemInspected.transform.position =
+                        Handles.FreeMoveHandle(
+                        _itemInspected.transform.position,
+                        _itemInspected.transform.rotation,
+                        Level.GridSize / 2,
+                        Level.GridSize / 2 * Vector3.one,
+                        Handles.RectangleHandleCap);
                     }
                     break;
                 case Mode.Erase:
@@ -369,6 +417,119 @@ namespace RunAndJump.LevelCreator
                 MessageType.Info);
             }
         }
+
+        private void Move()
+        {
+            Vector3 gridPoint =
+            _myTarget.WorldToGridCoordinates
+            (_itemInspected.transform.position);
+            int col = (int)gridPoint.x;
+            int row = (int)gridPoint.y;
+
+            if (col == _originalPosX && row == _originalPosY)
+            {
+                return;
+            }
+
+            if (!_myTarget.IsInsideGridBounds(col, row) ||
+            _myTarget.Pieces[col + row * _myTarget.TotalColumns] != null)
+            {
+                _itemInspected.transform.position =
+                _myTarget.GridToWorldCoordinates(_originalPosX,
+                _originalPosY);
+            }
+            else
+            {
+                _myTarget.Pieces[_originalPosX + _originalPosY *
+                _myTarget.TotalColumns] = null;
+                _myTarget.Pieces[col + row * _myTarget.TotalColumns] =
+                _itemInspected.GetComponent<LevelPiece>();
+                _myTarget.Pieces[col + row *
+                _myTarget.TotalColumns].transform.position =
+                _myTarget.GridToWorldCoordinates(col, row);
+            }
+        }
+        private void DrawLevelGenerationGUI()
+        {
+            GUILayout.Label("Level Generation", EditorStyles.boldLabel);
+            _groundHeight = EditorGUILayout.IntField("Ground Height", Mathf.Clamp(_groundHeight, 1, _myTarget.TotalRows));
+            GUILayout.Space(5);
+            if (GUILayout.Button("Generate Ground"))
+            {
+                GenerateGround(_groundHeight);
+            }
+            if (GUILayout.Button("Clear Level"))
+            {
+                if (EditorUtility.DisplayDialog("Level Generation", "Do you really want to remove all all objects from the level? This action is not reversable.", "Yes", "No"))
+                {
+                    ClearLevel();
+                }
+
+            }
+            GUILayout.Space(5);
+            GUILayout.Label("References", EditorStyles.boldLabel);
+            EditorGUILayout.PropertyField(BasePrefab);
+            EditorGUILayout.PropertyField(TopPrefab);
+        }
+        public void GenerateGround(int height)
+        {
+            for (int x = 0; x < _myTarget.TotalColumns; x++)
+            {
+                for (int y = 0; y < height; y++)
+                {
+                    if (_myTarget.Pieces[x + y * _myTarget.TotalColumns] != null)
+                        DestroyImmediate(_myTarget.Pieces[x + y * _myTarget.TotalColumns].gameObject);
+
+                    GameObject groundPrefab;
+                    if (y == height - 1)
+                    {
+                        groundPrefab = (GameObject)PrefabUtility.InstantiatePrefab(_myTarget.TopPrefab);
+                    }
+                    else
+                    {
+                        groundPrefab = (GameObject)PrefabUtility.InstantiatePrefab(_myTarget.BasePrefab);
+                    }
+                    _myTarget.Pieces[x + y * _myTarget.TotalColumns] = groundPrefab.GetComponent<LevelPiece>();
+                    groundPrefab.transform.position = _myTarget.GridToWorldCoordinates(x, y);
+                    groundPrefab.transform.SetParent(_myTarget.transform);
+                    groundPrefab.name = string.Format("[{0},{1}][{2}]", x, y, groundPrefab.name);
+                }
+            }
+        }
+
+        public void FindPrefabs()
+        {
+            if (foundPrefabs)
+                return;
+
+            var solidDirtGUID = AssetDatabase.FindAssets("SolidDirt t:Prefab");
+            var solidDirtAssetPath = AssetDatabase.GUIDToAssetPath(solidDirtGUID[0]);
+            _myTarget.BasePrefab = AssetDatabase.LoadAssetAtPath<GameObject>(solidDirtAssetPath);
+            var solidGrassGUID = AssetDatabase.FindAssets("SolidGrass t:Prefab");
+            var solidGrassAssetPath = AssetDatabase.GUIDToAssetPath(solidGrassGUID[0]);
+            _myTarget.TopPrefab = AssetDatabase.LoadAssetAtPath<GameObject>(solidGrassAssetPath);
+
+
+            if (_myTarget.TopPrefab != null && _myTarget.BasePrefab != null)
+                foundPrefabs = true;
+        }
+
+        public void ClearLevel()
+        {
+            if (_myTarget.Pieces == null)
+                return;
+
+            foreach (var levelPiece in _myTarget.Pieces)
+            {
+                if (levelPiece != null)
+                {
+                    DestroyImmediate(levelPiece.gameObject);
+                }
+
+            }
+
+        }
+
     }
 }
 

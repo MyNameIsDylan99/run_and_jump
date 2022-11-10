@@ -101,15 +101,10 @@ namespace RunAndJump.LevelCreator
                MessageType.Info);
                 return;
             }
-            int rowCapacity =
-            Mathf.FloorToInt(position.width / (ButtonWidth));
+            int rowCapacity = Mathf.FloorToInt(position.width / (ButtonWidth));
             _scrollPosition = GUILayout.BeginScrollView(_scrollPosition);
             int selectionGridIndex = -1;
-            selectionGridIndex = GUILayout.SelectionGrid(
-            selectionGridIndex,
-            GetGUIContentsFromItems(),
-            rowCapacity,
-            GetGUIStyle());
+            selectionGridIndex = GUILayout.SelectionGrid(selectionGridIndex,GetGUIContentsFromItems(),rowCapacity,GetGUIStyle());
             GetSelectedItem(selectionGridIndex);
             GUILayout.EndScrollView();
         }
